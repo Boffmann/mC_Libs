@@ -1,2 +1,0 @@
-/usr/bin/ar qc libraspi_serial.a CMakeFiles/raspi_serial.dir/src/RaspiUart.cpp.o
-/usr/bin/ranlib libraspi_serial.a

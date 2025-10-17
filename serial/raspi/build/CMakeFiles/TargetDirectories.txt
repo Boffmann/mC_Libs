@@ -1,3 +1,0 @@
-/Users/tjabben/repos/personal/mC_Libs/serial/raspi/build/CMakeFiles/raspi_serial.dir
-/Users/tjabben/repos/personal/mC_Libs/serial/raspi/build/CMakeFiles/edit_cache.dir
-/Users/tjabben/repos/personal/mC_Libs/serial/raspi/build/CMakeFiles/rebuild_cache.dir
