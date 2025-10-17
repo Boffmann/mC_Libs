@@ -1,12 +1,21 @@
 #include "../include/raspiinputoutput.h"
-//#include "driver/gpio.h"
+#include "gpiod.hpp"
 
 namespace jellED {
 
 BinaryState RaspiInputOutput::digitalReadPin(uint8_t pin) {
-    // if (gpio_get_level(gpio_num_t gpio_num) == 0) {
-    //     return STATE_LOW;
-    // }
+    gpiod::chip chip("gpiochip0");
+
+    gpiod::line line = chip.get_line(pin);
+
+    // Request it as input
+    line.request({"gpio-reader", gpiod::line_request::DIRECTION_INPUT});
+
+    // Read its value
+    int value = line.get_value();
+    if (value == 0) {
+        return STATE_LOW;
+    }
     return STATE_HIGH;
 }
 

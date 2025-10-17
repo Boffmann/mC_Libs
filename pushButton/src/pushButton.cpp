@@ -1,8 +1,8 @@
 #include "pushbutton.h"
 
 namespace jellED {
-    
-PushButton::PushButton(IPlatformUtils& platformUtils, uint8_t dataPin) 
+
+PushButton::PushButton(IPlatformUtils& platformUtils, uint8_t dataPin)
 : platformUtils(platformUtils),
     dataPin{dataPin},
     buttonStates{0},
