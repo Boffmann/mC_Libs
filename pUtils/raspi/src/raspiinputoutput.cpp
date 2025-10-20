@@ -1,22 +1,25 @@
 #include "../include/raspiinputoutput.h"
-#include "gpiod.hpp"
+#include <gpiod.hpp>
 
 namespace jellED {
 
+RaspiInputOutput::RaspiInputOutput() : chip{"/dev/gpiochip0"} {}
+
 BinaryState RaspiInputOutput::digitalReadPin(uint8_t pin) {
-    gpiod::chip chip("gpiochip0");
+    try {
+        auto request = this->chip.prepare_request()
+            .set_consumer("gpio-reader")
+            .add_line_settings(pin, gpiod::line_settings()
+                .set_direction(gpiod::line::direction::INPUT))
+            .do_request();
+        
+	auto pin_value = request.get_value(pin);
 
-    gpiod::line line = chip.get_line(pin);
-
-    // Request it as input
-    line.request({"gpio-reader", gpiod::line_request::DIRECTION_INPUT});
-
-    // Read its value
-    int value = line.get_value();
-    if (value == 0) {
-        return STATE_LOW;
+	return (pin_value == gpiod::line::value::ACTIVE) ? STATE_HIGH : STATE_LOW;
+        
+    } catch (const std::exception& e) {
+	throw e;
     }
-    return STATE_HIGH;
 }
 
 } // namespace jellED
