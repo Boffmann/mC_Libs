@@ -9,6 +9,7 @@ project(${target})
 
 set(include_path
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    "/opt/homebrew/include"
 )
 
 set(source_path "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -24,7 +25,3 @@ target_include_directories(${target}
   ${include_path}
 )
 
-target_link_libraries(${target}
-  PRIVATE
-  soundio
-)
