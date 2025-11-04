@@ -15,12 +15,13 @@ namespace jellED {
 #define NO_SUPPORTED_SAMPLE_RATE -1
 
 // https://github.com/andrewrk/libsoundio/blob/master/example/sio_microphone.c
-UsbMicro::UsbMicro(std::string &device_id)
+UsbMicro::UsbMicro(std::string &device_id, enum SoundIoBackend backend)
     : soundio{nullptr}, microphone{nullptr}, mic_in_stream{nullptr},
       initialization_time{std::chrono::steady_clock::now()} {
   this->device_id = device_id.c_str();
   // Initialize RecordContext
   this->rc.ring_buffer = nullptr;
+  this->backend = backend;
 };
 
 UsbMicro::~UsbMicro() {
@@ -151,8 +152,7 @@ void UsbMicro::initialize() {
   }
 
   // int err = soundio_connect(soundio);
-  // int err = soundio_connect_backend(soundio, SoundIoBackendAlsa);
-  int err = soundio_connect_backend(soundio, SoundIoBackendCoreAudio);
+  int err = soundio_connect_backend(soundio, this->backend);
   if (err) {
     std::cout << "error connecting " << soundio_strerror(err) << std::endl;
     return;
@@ -348,7 +348,7 @@ bool UsbMicro::read(AudioBuffer *buffer) {
   return true;
 }
 
-void UsbMicro::print_available_input_devices() {
+void UsbMicro::print_available_input_devices(enum SoundIoBackend backend) {
   struct SoundIo *soundio = soundio_create();
   if (!soundio) {
     std::cout << "out of memory" << std::endl;
@@ -359,9 +359,8 @@ void UsbMicro::print_available_input_devices() {
     enum SoundIoBackend backend = soundio_get_backend(soundio, i);
     printf("Available backend: %s\n", soundio_backend_name(backend));
   }
-  // int err = soundio_connect(soundio);
-  // int err = soundio_connect_backend(soundio, SoundIoBackendAlsa);
-  int err = soundio_connect_backend(soundio, SoundIoBackendCoreAudio);
+  int err = soundio_connect_backend(soundio, backend);
+
   if (err) {
     std::cout << "error connecting: " << soundio_strerror(err) << std::endl;
     soundio_destroy(soundio);
