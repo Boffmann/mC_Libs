@@ -26,8 +26,6 @@ private:
   struct RecordContext rc;
   std::chrono::steady_clock::time_point initialization_time;
   std::thread event_thread;
-  std::atomic<bool> event_thread_running;
-  int sampleRate;
   enum SoundIoBackend backend;
 
 public:
