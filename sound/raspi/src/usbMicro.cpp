@@ -38,9 +38,6 @@ UsbMicro::~UsbMicro() {
 
 static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
                           int frame_count_max) {
-  static int callback_count = 0;
-  callback_count++;
-
   struct RecordContext *rc = (RecordContext *)instream->userdata;
   struct SoundIoChannelArea *areas;
   int err;
@@ -268,25 +265,6 @@ bool UsbMicro::read(AudioBuffer *buffer) {
 
   int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
   char *read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
-
-  static int consecutive_empty_reads = 0;
-
-  // if (fill_bytes == 0) {
-  //     consecutive_empty_reads++;
-
-  //     // If we've had too many consecutive empty reads, the stream might be
-  //     dead if (consecutive_empty_reads > 10) {
-  //         std::cout << "Stream appears to be dead. Attempting to restart..."
-  //         << std::endl;
-  //         // Try to restart the stream
-  //         soundio_instream_start(mic_in_stream);
-  //         consecutive_empty_reads = 0;
-  //     }
-
-  //     return false;
-  // }
-
-  consecutive_empty_reads = 0; // Reset counter when we get data
 
   // Calculate how many samples we can read
   int bytes_per_sample = mic_in_stream->bytes_per_sample;
