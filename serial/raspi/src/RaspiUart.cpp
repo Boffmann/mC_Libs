@@ -91,9 +91,9 @@ int RaspiUart::send(const uint8_t* data, size_t length) {
         bytesWritten += written;
         
         // Small delay to allow system to process
-        if (bytesWritten < length) {
-            usleep(1000); // 1ms delay
-        }
+        // if (bytesWritten < length) {
+        //     usleep(1000); // 1ms delay
+        // }
     }
     
     return static_cast<int>(bytesWritten);

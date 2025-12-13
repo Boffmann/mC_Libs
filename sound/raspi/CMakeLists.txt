@@ -9,6 +9,7 @@ project(${target})
 
 set(include_path
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    "/usr/local/lib"
     "/opt/homebrew/include"
 )
 
