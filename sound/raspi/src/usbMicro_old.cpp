@@ -12,6 +12,10 @@
 
 namespace jellED {
 
+static void overflow_callback(struct SoundIoInStream *instream) {
+    fprintf(stderr, "!!! AUDIO OVERFLOW - samples lost !!!\n");
+}
+
 #define NO_SUPPORTED_SAMPLE_RATE -1
 
 // https://github.com/andrewrk/libsoundio/blob/master/example/sio_microphone.c
@@ -46,14 +50,12 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
   int free_bytes = soundio_ring_buffer_free_count(rc->ring_buffer);
   int free_count = free_bytes / instream->bytes_per_frame;
 
-  // Handle overflow: read and discard if buffer is full
+  // FIXED: Read as many frames as we can fit, don't drop everything
   if (free_count < frame_count_min) {
-    fprintf(stderr, "ring buffer overflow - dropping %d frames (free=%d, need=%d)\n", 
-            frame_count_min, free_count, frame_count_min);
+    fprintf(stderr, "ring buffer overflow - dropping %d frames\n", frame_count_min);
     // Must still call begin_read/end_read to acknowledge the audio!
     int frame_count = frame_count_min;
     if ((err = soundio_instream_begin_read(instream, &areas, &frame_count))) {
-      fprintf(stderr, "begin read error during overflow: %s\n", soundio_strerror(err));
       return;
     }
     if (frame_count > 0) {
@@ -122,39 +124,45 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
                                         total_written * instream->bytes_per_frame);
 }
 
-// Overflow callback - called when audio driver loses samples
-static void overflow_callback(struct SoundIoInStream *instream) {
-  fprintf(stderr, "!!! AUDIO OVERFLOW - driver lost samples !!!\n");
-}
-
-// Error callback - called on stream errors
-static void error_callback(struct SoundIoInStream *instream, int err) {
-  fprintf(stderr, "!!! AUDIO STREAM ERROR: %s !!!\n", soundio_strerror(err));
-}
-
 SoundIoFormat find_supported_format(SoundIoDevice *microphone) {
-  // Try to find a supported format - prefer S16 for efficiency
-  SoundIoFormat formats[] = {SoundIoFormatS16NE, SoundIoFormatFloat32NE,
-                             SoundIoFormatS32NE, SoundIoFormatS24NE};
+  // Try to find a supported format
+  SoundIoFormat supported_format;
+  SoundIoFormat formats[] = {SoundIoFormatS16NE, SoundIoFormatS24NE,
+                             SoundIoFormatS32NE, SoundIoFormatFloat32NE};
+  bool format_found = false;
   for (int i = 0; i < 4; i++) {
     if (soundio_device_supports_format(microphone, formats[i])) {
-      std::cout << "Using format: " << soundio_format_string(formats[i]) << std::endl;
-      return formats[i];
+      supported_format = formats[i];
+      format_found = true;
+      std::cout << "Using format: " << soundio_format_string(supported_format)
+                << std::endl;
+      break;
     }
   }
-  return SoundIoFormatInvalid;
+  if (!format_found) {
+    return SoundIoFormatInvalid;
+  }
+  return supported_format;
 }
 
 int find_supported_sample_rate(SoundIoDevice *microphone) {
-  // Try common sample rates - prefer higher rates for better quality
-  int rates[] = {48000, 44100, 22050, 16000, 8000};
-  for (int i = 0; i < 5; i++) {
+  // Try common sample rates
+  int rates[] = {8000, 16000, 22050, 44100, 48000};
+  int supported_sample_rate;
+  bool rate_found = false;
+  for (int i = 0; i < 4; i++) {
     if (soundio_device_supports_sample_rate(microphone, rates[i])) {
-      std::cout << "Using sample rate: " << rates[i] << std::endl;
-      return rates[i];
+      supported_sample_rate = rates[i];
+      rate_found = true;
+      std::cout << "Using sample rate: " << supported_sample_rate << std::endl;
+      break;
     }
   }
-  return NO_SUPPORTED_SAMPLE_RATE;
+  if (!rate_found) {
+    return NO_SUPPORTED_SAMPLE_RATE;
+  }
+
+  return supported_sample_rate;
 }
 
 void UsbMicro::initialize() {
@@ -168,6 +176,7 @@ void UsbMicro::initialize() {
     return;
   }
 
+  // int err = soundio_connect(soundio);
   int err = soundio_connect_backend(soundio, this->backend);
   if (err) {
     std::cout << "error connecting " << soundio_strerror(err) << std::endl;
@@ -193,7 +202,7 @@ void UsbMicro::initialize() {
       soundio_device_unref(device);
       break;
     } else {
-      std::cout << "Device: " << device->name << " is not the target" << std::endl;
+      std::cout << "Device: " << device->name << " is not found" << std::endl;
     }
     soundio_device_unref(device);
   }
@@ -229,7 +238,8 @@ void UsbMicro::initialize() {
   }
 
   if (!soundio_device_supports_sample_rate(microphone, sample_rate)) {
-    std::cout << "microphone does not support sample rate " << sample_rate << std::endl;
+    std::cout << "microphone does not support sample rate " << sample_rate
+              << std::endl;
     sample_rate = find_supported_sample_rate(this->microphone);
     if (sample_rate == NO_SUPPORTED_SAMPLE_RATE) {
       std::cout << "No supported sample rate found" << std::endl;
@@ -242,53 +252,43 @@ void UsbMicro::initialize() {
     std::cout << "out of memory instream" << std::endl;
     return;
   }
-  
   mic_in_stream->format = prioritized_format;
   mic_in_stream->sample_rate = sample_rate;
   mic_in_stream->read_callback = &read_callback;
-  mic_in_stream->overflow_callback = &overflow_callback;  // Detect driver-level overflow
-  mic_in_stream->error_callback = &error_callback;        // Detect stream errors
   mic_in_stream->userdata = &this->rc;
-  
-  // Request low latency - this tells ALSA to use smaller buffers
-  // Lower values = less latency but more CPU usage and potential for dropouts
-  mic_in_stream->software_latency = 0.02;  // 20ms - good balance for real-time
+  mic_in_stream->software_latency = 0.02;
+
+  mic_in_stream->overflow_callback = &overflow_callback;
 
   if ((err = soundio_instream_open(mic_in_stream))) {
-    fprintf(stderr, "unable to open input stream: %s\n", soundio_strerror(err));
+    fprintf(stderr, "unable to open input stream: %s", soundio_strerror(err));
     return;
   }
 
-  // Print actual latency achieved
-  fprintf(stderr, "%s %dHz %s interleaved, latency: %.3fs\n", 
-          mic_in_stream->layout.name,
-          sample_rate, 
-          soundio_format_string(prioritized_format),
-          mic_in_stream->software_latency);
+  fprintf(stderr, "%s %dHz %s interleaved\n", mic_in_stream->layout.name,
+          sample_rate, soundio_format_string(prioritized_format));
 
-  // Ring buffer: 500ms is enough for real-time processing
-  // Larger = more latency can build up, smaller = more risk of overflow
-  const double ring_buffer_duration_seconds = 0.5;
-  int capacity = static_cast<int>(ring_buffer_duration_seconds * mic_in_stream->sample_rate *
-                                   mic_in_stream->bytes_per_frame);
-  std::cout << "Ring buffer capacity: " << capacity << " bytes (" 
-            << ring_buffer_duration_seconds << "s)" << std::endl;
-  
+  const int ring_buffer_duration_seconds = 1;
+  int capacity = ring_buffer_duration_seconds * mic_in_stream->sample_rate *
+                 mic_in_stream->bytes_per_frame;
+  std::cout << "capacity: " << capacity << std::endl;
   rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
   if (!rc.ring_buffer) {
-    fprintf(stderr, "out of memory for ring buffer\n");
+    fprintf(stderr, "out of memory\n");
     return;
   }
 
   if ((err = soundio_instream_start(mic_in_stream))) {
-    std::cout << "unable to start input device: " << soundio_strerror(err) << std::endl;
+    std::cout << "unable to start input device: " << soundio_strerror(err)
+              << std::endl;
     return;
   }
-  
-  std::cout << "Audio stream started successfully" << std::endl;
 }
 
 bool UsbMicro::read(AudioBuffer *buffer) {
+  // DON'T call soundio_flush_events() here - it's expensive!
+  // The callback handles events asynchronously
+  
   if (!mic_in_stream || !rc.ring_buffer) {
     return false;
   }
@@ -329,7 +329,7 @@ bool UsbMicro::read(AudioBuffer *buffer) {
       buffer->buffer[i] = src[i] * norm;
     }
   } else if (mic_in_stream->format == SoundIoFormatS24NE) {
-    // 24-bit is trickier
+    // 24-bit is trickier, keep original logic but outside switch
     constexpr double norm = 1.0 / 8388608.0;
     for (int i = 0; i < samples_to_read; i++) {
       int32_t sample = 0;
@@ -346,32 +346,18 @@ bool UsbMicro::read(AudioBuffer *buffer) {
   return true;
 }
 
-void UsbMicro::flushEvents() {
-  if (soundio) {
-    soundio_flush_events(soundio);
-  }
-}
-
 void UsbMicro::drain_audio_buffer() {
-  if (!rc.ring_buffer || !mic_in_stream) return;
-  
-  std::cout << "Draining old audio from buffer..." << std::endl;
-  
-  // Flush events first to ensure buffer is updated
-  soundio_flush_events(soundio);
-  
-  int pending = soundio_ring_buffer_fill_count(rc.ring_buffer);
-  if (pending > 0) {
-    std::cout << "Discarding " << pending << " bytes (" 
-              << (pending / mic_in_stream->bytes_per_sample) << " samples)" << std::endl;
-    soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, pending);
-  }
-  
-  // Wait a bit for fresh audio to arrive
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  soundio_flush_events(soundio);
-  
-  std::cout << "Buffer drained, ready for real-time processing" << std::endl;
+    std::cout << "Draining old audio from buffer..." << std::endl;
+    while (true) {
+        int pending = soundio_ring_buffer_fill_count(rc.ring_buffer);
+        if (pending < mic_in_stream->bytes_per_sample * 100) {  // < 100 samples
+            break;  // Buffer is nearly empty, start processing
+        }
+        // Advance read pointer to discard old audio
+        soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, pending);
+        soundio_flush_events(soundio);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 }
 
 void UsbMicro::print_available_input_devices(enum SoundIoBackend backend) {
@@ -380,41 +366,38 @@ void UsbMicro::print_available_input_devices(enum SoundIoBackend backend) {
     std::cout << "out of memory" << std::endl;
     return;
   }
-  
   int count = soundio_backend_count(soundio);
   for (int i = 0; i < count; i++) {
-    enum SoundIoBackend be = soundio_get_backend(soundio, i);
-    printf("Available backend: %s\n", soundio_backend_name(be));
+    enum SoundIoBackend backend = soundio_get_backend(soundio, i);
+    printf("Available backend: %s\n", soundio_backend_name(backend));
   }
-  
   int err = soundio_connect_backend(soundio, backend);
+
   if (err) {
     std::cout << "error connecting: " << soundio_strerror(err) << std::endl;
     soundio_destroy(soundio);
     return;
   }
-  
   soundio_flush_events(soundio);
-  printf("Using sound Backend: %s\n", soundio_backend_name(soundio->current_backend));
-  
+  printf("Using sound Backend: %s\n",
+         soundio_backend_name(soundio->current_backend));
   int num_devices = soundio_input_device_count(soundio);
   std::cout << "Available input devices (" << num_devices << "):" << std::endl;
   for (int i = 0; i < num_devices; ++i) {
     SoundIoDevice *dev = soundio_get_input_device(soundio, i);
-    std::cout << "  [" << i << "] Name: '" << dev->name << "', ID: '" << dev->id << "'" << std::endl;
+    std::cout << "  [" << i << "] Name: '" << dev->name << "', ID: '" << dev->id
+              << "'" << std::endl;
     soundio_device_unref(dev);
   }
   soundio_destroy(soundio);
 }
 
-int UsbMicro::getSampleRate() { 
-  return this->mic_in_stream ? this->mic_in_stream->sample_rate : 0; 
-}
+int UsbMicro::getSampleRate() { return this->mic_in_stream->sample_rate; }
 
 int UsbMicro::getPendingSampleCount() {
-  if (!rc.ring_buffer || !mic_in_stream) return 0;
-  int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
-  return fill_bytes / mic_in_stream->bytes_per_sample;
+    if (!rc.ring_buffer || !mic_in_stream) return 0;
+    int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
+    return fill_bytes / mic_in_stream->bytes_per_sample;
 }
 
 } // namespace jellED

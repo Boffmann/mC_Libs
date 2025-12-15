@@ -6,7 +6,7 @@
 
 namespace jellED {
 
-#define I2S_DMA_BUF_LEN 64
+#define I2S_DMA_BUF_LEN 256
 
 typedef struct AudioBuffer {
     double buffer[I2S_DMA_BUF_LEN];

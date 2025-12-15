@@ -33,8 +33,11 @@ public:
   ~UsbMicro();
   void initialize();
   bool read(AudioBuffer *buffer);
+  void drain_audio_buffer();
+    void flushEvents();
   static void print_available_input_devices(enum SoundIoBackend backend);
   int getSampleRate();
+  int getPendingSampleCount();
 };
 
 } // namespace jellED
